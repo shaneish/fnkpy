@@ -12,18 +12,18 @@ from functools import reduce
 _CMD_NAME = "fn"
 _CMD_VERSION = "0.1.0"
 _DEFAULT_EXPR = ""
-_DEFAULT_LINE_SEPARATOR = "\n"
+_DEFAULT_INPUT_LINE_SEPARATOR = "\n"
+_DEFAULT_OUTPUT_LINE_SEPARATOR = "\n"
 if S_ISFIFO(os.fstat(0).st_mode):
     _DEFAULT_EXPR = sys.stdin.read()
 else:
     if sys.platform.startswith("win"):
-        _DEFAULT_LINE_SEPARATOR = "\\n"
+        _DEFAULT_INPUT_LINE_SEPARATOR = "\\n"
 
 class Fn:
 
     def __init__(self, args: Namespace):
         self.args = self._adjust_args(args)
-        print(self.args)
         self._load_imports()
         self.parsed_expr = self._parse_expr()
 
@@ -96,7 +96,7 @@ class Fn:
         out = ""
         if type(output) in [set, list, dict, tuple]:
             out = self.args.separator_out.join([str(entry) for entry in output])
-        elif type(output) in [str, int, float, bool]:
+        elif type(output) in [int, float, bool]:
             out = str(output)
         print(out)
 
@@ -125,8 +125,8 @@ if __name__ == "__main__":
     parser.add_argument("-x", "--expr", type = str, default = _DEFAULT_EXPR, help = "Expression you want evaluate using Python.")
     parser.add_argument("-v", "--version", action = "store_true", help = f"Show current version of {_CMD_NAME}")
     parser.add_argument("-f", "--function", type = str, default = "|v| -> v", help = "Lambda function to apply or evaluate.  Uses the following closure format: `|x, y| -> f(x, y)`.")
-    parser.add_argument("-si", "--separator_in", type = str, default = _DEFAULT_LINE_SEPARATOR, help = "String to separate input data.")
-    parser.add_argument("-so", "--separator_out", type = str, default = _DEFAULT_LINE_SEPARATOR, help = "String to use to join separated input data before printing to console.")
+    parser.add_argument("-si", "--separator_in", type = str, default = _DEFAULT_INPUT_LINE_SEPARATOR, help = "String to separate input data.")
+    parser.add_argument("-so", "--separator_out", type = str, default = _DEFAULT_OUTPUT_LINE_SEPARATOR, help = "String to use to join separated input data before printing to console.")
     parser.add_argument("-sw", "--separator_whitespace", action = "store_true", help = "Flag to override `separator_in` and split input data on all whitespace.")
     parser.add_argument("-s", "--separator", type = str, default = None, help = "String to separate both input and output data.  If specified, overrides both `--separator_in` and `--separator_out`.")
     parser.add_argument("-c", "--collection_type", type = str, default = "list", help = "Container to collect elements in.")

@@ -10,6 +10,7 @@ from functools import reduce
 
 
 _CMD_NAME = "fn"
+_CMD_VERSION = "0.1.0"
 _DEFAULT_EXPR = ""
 _DEFAULT_LINE_SEPARATOR = "\n"
 if S_ISFIFO(os.fstat(0).st_mode):
@@ -118,6 +119,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(prog = _CMD_NAME, description = "Small CLI tool to help you manipulate shell data with Python commands.")
     parser.add_argument("fn", type = str, help = "Main command you want to apply to your input. Acceptable inputs are `map`, `apply`, and `filter`.")
     parser.add_argument("expr", type = str, default = _DEFAULT_EXPR, help = "Expression you want evaluate using Python.")
+    parser.add_argument("-v", "--version", action = "store_true", help = f"Show current version of {_CMD_NAME}")
     parser.add_argument("-f", "--function", type = str, default = "|v| -> v", help = "Lambda function to apply or evaluate.  Uses the following closure format: `|x, y| -> f(x, y)`.")
     parser.add_argument("-si", "--separator_in", type = str, default = _DEFAULT_LINE_SEPARATOR, help = "String to separate input data.")
     parser.add_argument("-so", "--separator_out", type = str, default = _DEFAULT_LINE_SEPARATOR, help = "String to use to join separated input data before printing to console.")
@@ -127,3 +129,9 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--import", type = str, action = "append", help = "Module from the current Python execution environment to import before evaluating.")
     parser.add_argument("-d", "--data_type", type = Literal["str", "int", "float", "list", "set", "dict", "tuple", "bool"], default = "str", help = "Data type to convert entries into prior to apply executing.")
     parser.add_argument("-r", "--reduce_default", type = str | None, default = None, help = "Default value to use when aggregating via reduce.")
+    args = parse_args()
+
+    if args.version:
+        print(f"{_CMD_NAME} version-{_CMD_VERSION}")
+    else:
+        Fn(args).evaluate()

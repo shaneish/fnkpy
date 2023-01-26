@@ -1,8 +1,7 @@
 #!/usr/bin/env python3.11
-
 import sys
 import os
-from typing import Literal, Any
+from typing import Literal, Any, Callable
 from argparse import ArgumentParser, Namespace
 from stat import S_ISFIFO
 from statistics import mean, median, mode, stdev, variance
@@ -39,6 +38,8 @@ class Fn:
                 self.agg()
             case "fold":
                 self.fold()
+            case "filtermap":
+                self.filtermap()
             case _:
                 print("Not a supported function class.")
 
@@ -51,6 +52,15 @@ class Fn:
     def filter(self):
         output_collection = self.args.collection_type(
             filter(self.args.func, self.parsed_expr)
+        )
+        self._stdout(output_collection)
+
+    def filtermap(self):
+        output_collection = self.args.collection_type(
+            filter(
+                lambda entry: entry not in [None, "", set(), list(), dict(), tuple()],
+                map(self.args.func, self.parsed_expr),
+            )
         )
         self._stdout(output_collection)
 
@@ -71,7 +81,16 @@ class Fn:
                     f"Stdev  -> {stdev(self.parsed_expr)}",
                     f"Var    -> {variance(self.parsed_expr)}",
                 ]
+            case "sum":
+                out = sum([entry for entry in self.parsed_expr])
+            case "any":
+                out = any([self._try_eval(eval, entry) for entry in self.parsed_expr])
+            case "all":
+                out = all([self._try_eval(eval, entry) for entry in self.parsed_expr])
+            case "product":
+                out = reduce(lambda a, b: a * b, self.parsed_expr, 1)
             case other:
+                print(f"{other}({self.parsed_expr})")
                 out = eval(f"{other}({self.parsed_expr})")
         self._stdout(out)
 
@@ -82,15 +101,28 @@ class Fn:
             out = reduce(self.args.func, self.parsed_expr, self.args.reduce_default)
         self._stdout(out)
 
+    def _try_eval(self, fn: Callable, entry: str) -> Any:
+        out = None
+        try:
+            out = fn(entry)
+        except:
+            pass
+        return out
+
     def _parse_expr(self) -> set | list | dict | tuple:
         if self.args.separator_whitespace:
             the_iterable = self.args.expr.split()
         else:
             the_iterable = self.args.expr.split(self.args.separator_in)
 
-        return self.args.collection_type(
-            [self.args.data_type(entry) for entry in the_iterable]
-        )
+        if self.args.separate_inner is None:
+            return self.args.collection_type(
+                [self._try_eval(self.args.data_type, entry) for entry in the_iterable]
+            )
+        else:
+            return self.args.collection_type(
+                    [tuple(map(lambda element: self._try_eval(self.args.data_type, element), entry.split(self.args.separate_inner))) for entry in the_iterable]
+            )
 
     def _stdout(self, output: str | int | float | bool | set | list | dict | tuple):
         out = ""
@@ -108,14 +140,15 @@ class Fn:
         if args.module is None:
             args.module = []
         lambda_vars = (
-            args.function.split("->")[0].replace(" ", "").replace("|", "").strip()
+            args.function.split("->")[0].replace(" ", "").replace("|", "").replace("(", "").replace(")", "").strip()
         )
         lambda_func = "->".join(args.function.split("->")[1:]).strip()
-        args.func = (
-            eval(f"lambda {lambda_vars}: {lambda_func}")
-            if (len(args.function.split("->")) > 1)
-            else lambda v: v
-        )
+        if len(args.function.split("->")) == 1:
+            if args.function in ["sum", "product", "stats"]:
+                args.data_type = "int" if (args.data_type == "int") else "float"
+            args.func = lambda v: v
+        else:
+            args.func = lambda entry: self._try_eval(eval(f"lambda {lambda_vars}: {lambda_func}"), entry)
         args.expr = args.expr.strip()
         if args.separator is not None:
             args.separator_in = args.separator
@@ -128,7 +161,7 @@ class Fn:
 if __name__ == "__main__":
     parser = ArgumentParser(
         prog=_CMD_NAME,
-        description="Small CLI tool to help you manipulate shell data with Python commands.",
+        description="Small CLI tool to help you manINPUTipulate shell data with Python commands.",
     )
     parser.add_argument(
         "fn",
@@ -179,8 +212,13 @@ if __name__ == "__main__":
         "-s",
         "--separator",
         type=str,
-        default=None,
         help="String to separate both input and output data.  If specified, overrides both `--separator_in` and `--separator_out`.",
+    )
+    parser.add_argument(
+        "-sin",
+        "--separate_inner",
+        type=str,
+        help="String to split data entries on."
     )
     parser.add_argument(
         "-c",
@@ -207,7 +245,6 @@ if __name__ == "__main__":
         "-r",
         "--reduce_default",
         type=Any,
-        default=None,
         help="Default value to use when aggregating via reduce.",
     )
     args = parser.parse_args()

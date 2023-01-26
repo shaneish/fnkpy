@@ -20,8 +20,8 @@ else:
     if sys.platform.startswith("win"):
         _DEFAULT_INPUT_LINE_SEPARATOR = "\\n"
 
-class Fn:
 
+class Fn:
     def __init__(self, args: Namespace):
         self.args = self._adjust_args(args)
         self._load_imports()
@@ -43,11 +43,15 @@ class Fn:
                 print("Not a supported function class.")
 
     def map(self):
-        output_collection = self.args.collection_type(map(self.args.func, self.parsed_expr))
+        output_collection = self.args.collection_type(
+            map(self.args.func, self.parsed_expr)
+        )
         self._stdout(output_collection)
 
     def filter(self):
-        output_collection = self.args.collection_type(filter(self.args.func, self.parsed_expr))
+        output_collection = self.args.collection_type(
+            filter(self.args.func, self.parsed_expr)
+        )
         self._stdout(output_collection)
 
     def apply(self):
@@ -57,21 +61,15 @@ class Fn:
     def agg(self):
         out = ""
         match self.args.function:
-            # case "sum":
-            #     out = sum(self.parsed_expr)
             case "concat":
                 out = "".join([str(entry) for entry in self.parsed_expr])
-            # case "any":
-            #     out = any(self.parsed_expr)
-            # case "all":
-            #     out = all(self.parsed_expr)
             case "stats":
                 out = [
-                        f"Mean   -> {mean(self.parsed_expr)}",
-                        f"Median -> {median(self.parsed_expr)}",
-                        f"Mode   -> {mode(self.parsed_expr)}",
-                        f"Stdev  -> {stdev(self.parsed_expr)}",
-                        f"Var    -> {variance(self.parsed_expr)}"
+                    f"Mean   -> {mean(self.parsed_expr)}",
+                    f"Median -> {median(self.parsed_expr)}",
+                    f"Mode   -> {mode(self.parsed_expr)}",
+                    f"Stdev  -> {stdev(self.parsed_expr)}",
+                    f"Var    -> {variance(self.parsed_expr)}",
                 ]
             case other:
                 out = eval(f"{other}({self.parsed_expr})")
@@ -90,7 +88,9 @@ class Fn:
         else:
             the_iterable = self.args.expr.split(self.args.separator_in)
 
-        return self.args.collection_type([self.args.data_type(entry) for entry in the_iterable])
+        return self.args.collection_type(
+            [self.args.data_type(entry) for entry in the_iterable]
+        )
 
     def _stdout(self, output: str | int | float | bool | set | list | dict | tuple):
         out = ""
@@ -107,9 +107,15 @@ class Fn:
     def _adjust_args(self, args: Namespace) -> Namespace:
         if args.module is None:
             args.module = []
-        lambda_vars = args.function.split("->")[0].replace(" ", "").replace("|", "").strip()
+        lambda_vars = (
+            args.function.split("->")[0].replace(" ", "").replace("|", "").strip()
+        )
         lambda_func = "->".join(args.function.split("->")[1:]).strip()
-        args.func = eval(f"lambda {lambda_vars}: {lambda_func}") if (len(args.function.split("->")) > 1) else lambda v: v
+        args.func = (
+            eval(f"lambda {lambda_vars}: {lambda_func}")
+            if (len(args.function.split("->")) > 1)
+            else lambda v: v
+        )
         args.expr = args.expr.strip()
         if args.separator is not None:
             args.separator_in = args.separator
@@ -120,19 +126,90 @@ class Fn:
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser(prog = _CMD_NAME, description = "Small CLI tool to help you manipulate shell data with Python commands.")
-    parser.add_argument("fn", type = str, help = "Main command you want to apply to your input. Acceptable inputs are `map`, `apply`, and `filter`.")
-    parser.add_argument("-x", "--expr", type = str, default = _DEFAULT_EXPR, help = "Expression you want evaluate using Python.")
-    parser.add_argument("-v", "--version", action = "store_true", help = f"Show current version of {_CMD_NAME}")
-    parser.add_argument("-f", "--function", type = str, default = "|v| -> v", help = "Lambda function to apply or evaluate.  Uses the following closure format: `|x, y| -> f(x, y)`.")
-    parser.add_argument("-si", "--separator_in", type = str, default = _DEFAULT_INPUT_LINE_SEPARATOR, help = "String to separate input data.")
-    parser.add_argument("-so", "--separator_out", type = str, default = _DEFAULT_OUTPUT_LINE_SEPARATOR, help = "String to use to join separated input data before printing to console.")
-    parser.add_argument("-sw", "--separator_whitespace", action = "store_true", help = "Flag to override `separator_in` and split input data on all whitespace.")
-    parser.add_argument("-s", "--separator", type = str, default = None, help = "String to separate both input and output data.  If specified, overrides both `--separator_in` and `--separator_out`.")
-    parser.add_argument("-c", "--collection_type", type = str, default = "list", help = "Container to collect elements in.")
-    parser.add_argument("-m", "--module", type = str, action = "append", help = "Module from the current Python execution environment to import before evaluating.")
-    parser.add_argument("-d", "--data_type", type = str, default = "str", help = "Data type to convert entries into prior to apply executing.")
-    parser.add_argument("-r", "--reduce_default", type = Any, default = None, help = "Default value to use when aggregating via reduce.")
+    parser = ArgumentParser(
+        prog=_CMD_NAME,
+        description="Small CLI tool to help you manipulate shell data with Python commands.",
+    )
+    parser.add_argument(
+        "fn",
+        type=str,
+        help="Main command you want to apply to your input. Acceptable inputs are `map`, `apply`, and `filter`.",
+    )
+    parser.add_argument(
+        "-x",
+        "--expr",
+        type=str,
+        default=_DEFAULT_EXPR,
+        help="Expression you want evaluate using Python.",
+    )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="store_true",
+        help=f"Show current version of {_CMD_NAME}",
+    )
+    parser.add_argument(
+        "-f",
+        "--function",
+        type=str,
+        default="|v| -> v",
+        help="Lambda function to apply or evaluate.  Uses the following closure format: `|x, y| -> f(x, y)`.",
+    )
+    parser.add_argument(
+        "-si",
+        "--separator_in",
+        type=str,
+        default=_DEFAULT_INPUT_LINE_SEPARATOR,
+        help="String to separate input data.",
+    )
+    parser.add_argument(
+        "-so",
+        "--separator_out",
+        type=str,
+        default=_DEFAULT_OUTPUT_LINE_SEPARATOR,
+        help="String to use to join separated input data before printing to console.",
+    )
+    parser.add_argument(
+        "-sw",
+        "--separator_whitespace",
+        action="store_true",
+        help="Flag to override `separator_in` and split input data on all whitespace.",
+    )
+    parser.add_argument(
+        "-s",
+        "--separator",
+        type=str,
+        default=None,
+        help="String to separate both input and output data.  If specified, overrides both `--separator_in` and `--separator_out`.",
+    )
+    parser.add_argument(
+        "-c",
+        "--collection_type",
+        type=str,
+        default="list",
+        help="Container to collect elements in.",
+    )
+    parser.add_argument(
+        "-m",
+        "--module",
+        type=str,
+        action="append",
+        help="Module from the current Python execution environment to import before evaluating.",
+    )
+    parser.add_argument(
+        "-d",
+        "--data_type",
+        type=str,
+        default="str",
+        help="Data type to convert entries into prior to apply executing.",
+    )
+    parser.add_argument(
+        "-r",
+        "--reduce_default",
+        type=Any,
+        default=None,
+        help="Default value to use when aggregating via reduce.",
+    )
     args = parser.parse_args()
 
     if args.fn in ["version", "v", "--version", "-v"]:

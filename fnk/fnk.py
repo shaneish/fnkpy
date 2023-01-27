@@ -22,6 +22,16 @@ else:
 
 
 class Fn:
+    _FN_GROUPS = [
+        ["map"],
+        ["filter"],
+        ["apply", "exec"],
+        ["agg", "aggregate"],
+        ["fold", "reduce"],
+        ["filtermap", "fmap", "filter_map", "eval"],
+        ["sort"]
+    ]
+
     def __init__(self, args: Namespace):
         self.args = self._adjust_args(args)
         self.parsed_expr = self._parse_expr()
@@ -32,13 +42,13 @@ class Fn:
                 self.map()
             case "filter":
                 self.filter()
-            case "apply" | "exec":
+            case "apply":
                 self.apply()
-            case "agg" | "aggregate":
+            case "agg":
                 self.agg()
-            case "fold" | "reduce":
+            case "fold":
                 self.fold()
-            case "filtermap" | "fmap" | "filter_map" | "eval":
+            case "filtermap":
                 self.filter_map()
             case "sort":
                 self.sort()
@@ -167,7 +177,6 @@ class Fn:
             the_iterable = self.args.expr.split()
         else:
             the_iterable = self.args.expr.split(self.args.input_separator)
-
         if not self.args.split_entry:
             return self.args.container_type(
                 [self.args.lambda_type_lambda(entry) for entry in the_iterable]
@@ -199,6 +208,12 @@ class Fn:
         print(out)
 
     def _adjust_args(self, args: Namespace) -> Namespace:
+        # Reduce possible fn command names to their primary name
+        for group in self._FN_GROUPS:
+            if args.fn in group:
+                args.fn = group[0]
+
+        # Extract information from function and parse into a lambda
         raw_vars = (
             args.function.split("->")[0]
                 .replace(" ", "")
@@ -208,11 +223,11 @@ class Fn:
                 .strip()
                 .split(",")
         )
-        if len(args.function.split("->")) == 1:
+        if len(args.function.split("->")) == 1: # if fn is agg, try to convert to numeric if possible
             if args.function in ["sum", "product", "stats"]:
                 args.type = "int" if (args.type == "int") else "float"
         lambda_var_symbols = [s.split(":")[0].strip() for s in raw_vars]
-        lambda_var_types = [s.split(":")[1].strip() if len(s.split(":")) > 0 else "" for s in raw_vars]
+        lambda_var_types = list(map(lambda v: v[1].strip(), map(lambda u: u[0] if (u[1] > 1) else ["", ""], map(lambda t: (t.split(":"), len(t.split(":"))), raw_vars))))
         lambda_var_types = [t if t in ["str", "int", "float", "bool", "list", "set", "tuple", "dict"] else args.type for t in lambda_var_types]
         lambda_vars = ",".join(lambda_var_symbols)
         lambda_func = "->".join(args.function.split("->")[1:]).strip()
@@ -237,6 +252,8 @@ class Fn:
             args.func = lambda entry: self._try_eval_dist_vars(
                 eval(f"lambda {lambda_vars}: {lambda_func}"), entry
             )
+
+        # Additional control over args to allow some to overwrite others and do necessary conversion
         args.expr = args.expr.strip()
         if args.separator is not None:
             args.input_separator = args.separator
@@ -259,14 +276,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "fn",
         type=str,
-        nargs="?",
         default="eval",
         help="Main command you want to apply to your input. Acceptable inputs are `map`, `apply`, and `filter`.",
     )
     parser.add_argument(
-        "-x",
-        "--expr",
+        "expr",
         type=str,
+        nargs="?",
         default=_DEFAULT_EXPR,
         help="Expression you want evaluate using Python.",
     )
@@ -397,6 +413,7 @@ if __name__ == "__main__":
     if (args.fn in "version") or (args.version):
         print(f"{_CMD_NAME} - v_{_CMD_VERSION}")
     else:
+        # Import modules
         if args.modules is not None:
             for module in args.modules:
                 split_module = module.split(":")
@@ -409,4 +426,5 @@ if __name__ == "__main__":
                         exec(
                             f"from {split_module[0]} import {split_module[1]} as {split_module[3]}"
                         )
+        # Execute command
         Fn(args).evaluate()

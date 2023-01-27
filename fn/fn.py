@@ -1,6 +1,7 @@
 #!/usr/bin/env python3.11
 import sys
 import os
+import json
 from typing import Any, Callable
 from argparse import ArgumentParser, Namespace
 from stat import S_ISFIFO
@@ -153,6 +154,12 @@ class Fn:
         return cmd
 
     def _parse_expr(self) -> set | list | dict | tuple:
+        if self.args.json_in:
+            input_json = json.loads(self.args.expr)
+            if type(input_json) == list:
+                return input_json
+            else:
+                return [item for item in input_json.items()]
         if self.args.split_whitespace:
             the_iterable = self.args.expr.split()
         else:
@@ -177,9 +184,20 @@ class Fn:
                 ]
             )
 
-    def _stdout(self, output: str | int | float | bool | set | list | dict | tuple):'{"s": 1, "t": {"new": [1,2]}}'
+    def _stdout(self, output: str | int | float | bool | set | list | dict | tuple):
         out = ""
-        if type(output) in [set, list, dict, tuple]:
+        if self.args.json_out:
+            out_json = None
+            try:
+                out_json = dict(output)
+            except:
+                try:
+                    out_json = list(output)
+                except:
+                    out = "Output cannot be parsed as JSON."
+            if out_json is not None:
+                out = json.dumps(out_json, indent = self.args.json_out_indent, sort_keys = self.args.json_out_sort)
+        elif type(output) in [set, list, dict, tuple]:
             out = self.args.output_separator.join([str(entry) for entry in output])
         elif type(output) in [int, float, bool]:
             out = str(output)
@@ -218,6 +236,9 @@ class Fn:
         args.type = eval(args.type)
         if (args.json_out_indent is not None) and (args.json_out_indent.isdigit()):
             args.json_out_indent = int(args.json_out_indent)
+        if args.json:
+            args.json_in = True
+            args.json_out = True
         return args
 
 
@@ -328,7 +349,6 @@ if __name__ == "__main__":
         help="Default value to use when aggregating via reduce.",
     )
     parser.add_argument("-ji", "--json_in", action = "store_true", help = "Flag to specify if input should be parsed as JSON.")
-    parser.add_argument("-jii", "--json_in_iter_method", type = str, default = "items", help = "Method of iterating over JSON.  Use default `-jii items` to return a tuple for each entry in the JSON, use `-jii keys` to iterate over just the keys of each entry, or use `-jii values` to iterate over just the values the keys map to.  If the high level structure of the input JSON is a list, the list will be iterated over like any other.")
     parser.add_argument("-jo", "--json_out", action = "store_true", help = "Flag to specify if output should be parsed as JSON")
     parser.add_argument("-j", "--json", action = "store_true", help = "Flag to specify that both input and output should be parsed as JSON.")
     parser.add_argument("-jos", "--json_out_sort", action = "store_true", help = "Flag to specify whether output JSON will be sorted by key or not.")

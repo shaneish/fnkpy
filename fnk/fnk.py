@@ -73,11 +73,14 @@ class Fn:
 
     def sort(self):
         if self.args.func == "reverse":
-            output_collection = self.args.container_type(sorted(self.parsed_expr), reverse = True)
+            output_collection = self.args.container_type(
+                sorted(self.parsed_expr), reverse=True
+            )
         else:
-            output_collection = self.args.container_type(sorted(self.parsed_expr), key = self.args.func)
+            output_collection = self.args.container_type(
+                sorted(self.parsed_expr), key=self.args.func
+            )
         self._stdout(output_collection)
-
 
     def agg(self):
         out = ""
@@ -174,9 +177,7 @@ class Fn:
                 [
                     self.args.arg_container_type(
                         map(
-                            lambda element: self._try_eval(
-                                self.args.type, element
-                            ),
+                            lambda element: self._try_eval(self.args.type, element),
                             entry.split(self.args.entry_separator),
                         )
                     )
@@ -196,14 +197,17 @@ class Fn:
                 except:
                     out = "Output cannot be parsed as JSON."
             if out_json is not None:
-                out = json.dumps(out_json, indent = self.args.json_out_indent, sort_keys = self.args.json_out_sort)
+                out = json.dumps(
+                    out_json,
+                    indent=self.args.json_out_indent,
+                    sort_keys=self.args.json_out_sort,
+                )
         elif type(output) in [set, list, dict, tuple]:
             out = self.args.output_separator.join([str(entry) for entry in output])
         elif type(output) in [int, float, bool]:
             out = str(output)
         print(out)
 
-    
     def _adjust_args(self, args: Namespace) -> Namespace:
         lambda_vars = (
             args.function.split("->")[0]
@@ -300,13 +304,18 @@ if __name__ == "__main__":
         type=str,
         help="String to separate both input and output data.  If specified, overrides both `--input_separator` and `--output_separator`.",
     )
-    parser.add_argument("-se", "--split_entry", action="store_true", help="Flag to split each entry being iterated over into it's own container.")
+    parser.add_argument(
+        "-se",
+        "--split_entry",
+        action="store_true",
+        help="Flag to split each entry being iterated over into it's own container.",
+    )
     parser.add_argument(
         "-es",
         "--entry_separator",
         type=str,
         default=" ",
-        help="String to split data entries on."
+        help="String to split data entries on.",
     )
     parser.add_argument(
         "-da",
@@ -332,7 +341,7 @@ if __name__ == "__main__":
         "-m",
         "--module",
         type=str,
-        nargs = "*",
+        nargs="*",
         help="Module from the current Python execution environment to import before evaluating.  Calling `--module X` will import X as a module, Calling `--module X:Y` will import object Y from module X, and `--module X:Y:Z` will import object Y from module X as Z",
     )
     parser.add_argument(
@@ -348,11 +357,36 @@ if __name__ == "__main__":
         type=Any,
         help="Default value to use when aggregating via reduce.",
     )
-    parser.add_argument("-ji", "--json_in", action = "store_true", help = "Flag to specify if input should be parsed as JSON.")
-    parser.add_argument("-jo", "--json_out", action = "store_true", help = "Flag to specify if output should be parsed as JSON")
-    parser.add_argument("-j", "--json", action = "store_true", help = "Flag to specify that both input and output should be parsed as JSON.")
-    parser.add_argument("-jos", "--json_out_sort", action = "store_true", help = "Flag to specify whether output JSON will be sorted by key or not.")
-    parser.add_argument("-joi", "--json_out_indent", type = str, help = "Specify indentation for output JSON.")
+    parser.add_argument(
+        "-ji",
+        "--json_in",
+        action="store_true",
+        help="Flag to specify if input should be parsed as JSON.",
+    )
+    parser.add_argument(
+        "-jo",
+        "--json_out",
+        action="store_true",
+        help="Flag to specify if output should be parsed as JSON",
+    )
+    parser.add_argument(
+        "-j",
+        "--json",
+        action="store_true",
+        help="Flag to specify that both input and output should be parsed as JSON.",
+    )
+    parser.add_argument(
+        "-jos",
+        "--json_out_sort",
+        action="store_true",
+        help="Flag to specify whether output JSON will be sorted by key or not.",
+    )
+    parser.add_argument(
+        "-joi",
+        "--json_out_indent",
+        type=str,
+        help="Specify indentation for output JSON.",
+    )
     args = parser.parse_args()
 
     if (args.fn in "version") or (args.version):
@@ -366,5 +400,7 @@ if __name__ == "__main__":
                 case 2:
                     exec(f"from {split_module[0]} import {split_module[1]}")
                 case 3:
-                    exec(f"from {split_module[0]} import {split_module[1]} as {split_module[3]}")
+                    exec(
+                        f"from {split_module[0]} import {split_module[1]} as {split_module[3]}"
+                    )
         Fn(args).evaluate()

@@ -74,11 +74,11 @@ class Fn:
     def sort(self):
         if self.args.func == "reverse":
             output_collection = self.args.container_type(
-                sorted(self.parsed_expr), reverse=True
+                sorted(self.parsed_expr, reverse=True)
             )
         else:
             output_collection = self.args.container_type(
-                sorted(self.parsed_expr), key=self.args.func
+                sorted(self.parsed_expr, key=self.args.func)
             )
         self._stdout(output_collection)
 
@@ -139,7 +139,7 @@ class Fn:
     ) -> str:
         cmd = str(self._try_eval(fn, entry, ""))
         if self.args.distribute_args:
-            if self.args.arg_container_type in [list, tuplmape]:
+            if self.args.arg_container_type in [list, tuple]:
                 cmd = str(self._try_eval(fn, entry, "", True))
             elif self.args.arg_container_type in [dict]:
                 cmd = str(self._try_eval(fn, entry, "", True, False))
@@ -170,20 +170,10 @@ class Fn:
 
         if not self.args.split_entry:
             return self.args.container_type(
-                [self._try_eval(self.args.type, entry) for entry in the_iterable]
+                [self.args.lambda_func_lambda(entry) for entry in the_iterable]
             )
         else:
-            return self.args.container_type(
-                [
-                    self.args.arg_container_type(
-                        map(
-                            lambda element: self._try_eval(self.args.type, element),
-                            entry.split(self.args.entry_separator),
-                        )
-                    )
-                    for entry in the_iterable
-                ]
-            )
+            return self.args.container_type([self.args.lambda_func_lambda(*(entry.split(self.args.entry_separator)) for entry in the_iterable])
 
     def _stdout(self, output: str | int | float | bool | set | list | dict | tuple):
         out = ""
@@ -209,18 +199,33 @@ class Fn:
         print(out)
 
     def _adjust_args(self, args: Namespace) -> Namespace:
-        lambda_vars = (
+        raw_vars = (
             args.function.split("->")[0]
-            .replace(" ", "")
-            .replace("|", "")
-            .replace("(", "")
-            .replace(")", "")
-            .strip()
+                .replace(" ", "")
+                .replace("|", "")
+                .replace("(", "")
+                .replace(")", "")
+                .strip()
+                .split(",")
         )
-        lambda_func = "->".join(args.function.split("->")[1:]).strip()
         if len(args.function.split("->")) == 1:
             if args.function in ["sum", "product", "stats"]:
                 args.type = "int" if (args.type == "int") else "float"
+        lambda_var_symbols = [s.split(":")[0].strip() for s in raw_vars]
+        lambda_var_types = [s.split(":")[1].strip() if len(s.split(":")) > 0 else "" for s in raw_vars]
+        lambda_var_types = [t if t in ["str", "int", "float", "bool", "list", "set", "tuple", "dict"] else args.type for t in lambda_var_types]
+        lambda_vars = ",".join(lambda_var_symbols)
+        lambda_func = "->".join(args.function.split("->")[1:]).strip()
+        args.lambda_symbols = lambda_var_symbols
+        lambda_inits_collection = ", ".join([f"{t[1]}({t[0]})" for t in zip(lambda_var_symbols, lambda_var_types)])
+        lambda_inits_dict = ", ".join([f"\"{t[0]}\": {t[1]}({t[0]})" for t in zip(lambda_var_symbols, lambda_var_types)])
+        if type(args.arg_container_type) == "dict":
+            args.lambda_type_lambda = eval(f"lambda {lambda_vars}: " + "{" + lambda_inits_dict + "}")
+        elif not args.split_entry:
+            args.lambda_type_lambda = eval(f"lambda {lambda_vars}: {lambda_inits_collection}")
+        else:
+            args.lambda_type_lambda = eval(f"lambda {lambda_vars}: ({lambda_inits_collection})")
+        if args.fn == "agg":
             args.func = lambda v: v
         elif args.fn == "eval":
             args.func = lambda s: eval(s)
@@ -275,8 +280,8 @@ if __name__ == "__main__":
         "-f",
         "--function",
         type=str,
-        default="|v| -> v",
-        help="Lambda function to apply or evaluate.  Uses the following closure format: `|x, y| -> f(x, y)`.",
+        default="|v: str| -> v",
+        help="Lambda function to apply or evaluate.  Uses the following closure format: `|x: str, y: int| -> f(x, y)`.",
     )
     parser.add_argument(
         "-is",
@@ -339,10 +344,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-m",
-        "--module",
+        "--modules",
         type=str,
         nargs="*",
-        help="Module from the current Python execution environment to import before evaluating.  Calling `--module X` will import X as a module, Calling `--module X:Y` will import object Y from module X, and `--module X:Y:Z` will import object Y from module X as Z",
+        help="Modules from the current Python execution environment to import before evaluating.  Calling `--module X` will import X as a module, Calling `--module X:Y` will import object Y from module X, and `--module X:Y:Z` will import object Y from module X as Z",
     )
     parser.add_argument(
         "-t",
@@ -392,15 +397,16 @@ if __name__ == "__main__":
     if (args.fn in "version") or (args.version):
         print(f"{_CMD_NAME} - v_{_CMD_VERSION}")
     else:
-        for module in args.module:
-            split_module = module.split(":")
-            match len(split_module):
-                case 1:
-                    exec(f"import {module}")
-                case 2:
-                    exec(f"from {split_module[0]} import {split_module[1]}")
-                case 3:
-                    exec(
-                        f"from {split_module[0]} import {split_module[1]} as {split_module[3]}"
-                    )
+        if args.modules is not None:
+            for module in args.modules:
+                split_module = module.split(":")
+                match len(split_module):
+                    case 1:
+                        exec(f"import {module}")
+                    case 2:
+                        exec(f"from {split_module[0]} import {split_module[1]}")
+                    case 3:
+                        exec(
+                            f"from {split_module[0]} import {split_module[1]} as {split_module[3]}"
+                        )
         Fn(args).evaluate()

@@ -170,10 +170,10 @@ class Fn:
 
         if not self.args.split_entry:
             return self.args.container_type(
-                [self.args.lambda_func_lambda(entry) for entry in the_iterable]
+                [self.args.lambda_type_lambda(entry) for entry in the_iterable]
             )
         else:
-            return self.args.container_type([self.args.lambda_func_lambda(*(entry.split(self.args.entry_separator)) for entry in the_iterable])
+            return self.args.container_type([self.args.lambda_type_lambda(*(entry.split(self.args.entry_separator))) for entry in the_iterable])
 
     def _stdout(self, output: str | int | float | bool | set | list | dict | tuple):
         out = ""

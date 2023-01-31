@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fnk"
+version = "0.1.0"
+authors = [
+    {name = "Shane Stephenson", email = "stephenson.shane.a@gmail.com"},
+]
+description = "Run Python on the command line with a functional bent."
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["cli", "functional", "python"]
+license = {text = "BSD-3-Clause"}
+dependencies = ["pytest"]
+
+[options]
+packages = ["fnk"]
+
+[project.scripts]
+fnk = "fnk.fnk:main"

@@ -1,15 +1,14 @@
 #!/usr/bin/env python3.11
 import sys
 import os
-import json
-from typing import Any, Callable
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 from stat import S_ISFIFO
-from statistics import mean, median, mode, stdev, variance
-from functools import reduce
+from parser import Fn
+import pkg_resources
 
 
-_CMD_NAME = "fn"
+_CMD_NAME = "fnk"
+# _CMD_VERSION = pkg_resources.get_distribution(_CMD_NAME).version
 _CMD_VERSION = "0.1.0"
 _DEFAULT_EXPR = ""
 _DEFAULT_INPUT_LINE_SEPARATOR = "\n"
@@ -21,254 +20,7 @@ else:
         _DEFAULT_INPUT_LINE_SEPARATOR = "\\n"
 
 
-class Fn:
-    _FN_GROUPS = [
-        ["map"],
-        ["filter"],
-        ["apply", "exec"],
-        ["agg", "aggregate"],
-        ["fold", "reduce"],
-        ["filtermap", "fmap", "filter_map", "eval"],
-        ["sort"]
-    ]
-
-    def __init__(self, args: Namespace):
-        self.args = self._adjust_args(args)
-        self.parsed_expr = self._parse_expr()
-
-    def evaluate(self):
-        match self.args.fn:
-            case "map":
-                self.map()
-            case "filter":
-                self.filter()
-            case "apply":
-                self.apply()
-            case "agg":
-                self.agg()
-            case "fold":
-                self.fold()
-            case "filtermap":
-                self.filter_map()
-            case "sort":
-                self.sort()
-            case _:
-                print("Not a supported function class.")
-
-    def map(self):
-        output_collection = self.args.container_type(
-            map(self.args.func, self.parsed_expr)
-        )
-        self._stdout(output_collection)
-
-    def filter(self):
-        output_collection = self.args.container_type(
-            filter(self.args.func, self.parsed_expr)
-        )
-        self._stdout(output_collection)
-
-    def filter_map(self):
-        output_collection = self.args.container_type(
-            filter(
-                lambda entry: entry not in [None, "", set(), list(), dict(), tuple()],
-                map(self.args.func, self.parsed_expr),
-            )
-        )
-        self._stdout(output_collection)
-
-    def apply(self):
-        for entry in self.parsed_expr:
-            cmd = self.args.func(entry)
-            exec(cmd)
-
-    def sort(self):
-        if self.args.func == "reverse":
-            output_collection = self.args.container_type(
-                sorted(self.parsed_expr, reverse=True)
-            )
-        else:
-            output_collection = self.args.container_type(
-                sorted(self.parsed_expr, key=self.args.func)
-            )
-        self._stdout(output_collection)
-
-    def agg(self):
-        out = ""
-        match self.args.function:
-            case "concat":
-                out = "".join([str(entry) for entry in self.parsed_expr])
-            case "stats":
-                out = [
-                    f"Mean   -> {mean(self.parsed_expr)}",
-                    f"Median -> {median(self.parsed_expr)}",
-                    f"Mode   -> {mode(self.parsed_expr)}",
-                    f"Stdev  -> {stdev(self.parsed_expr)}",
-                    f"Var    -> {variance(self.parsed_expr)}",
-                ]
-            case "sum":
-                out = sum([entry for entry in self.parsed_expr])
-            case "any":
-                out = any([self._try_eval(eval, entry) for entry in self.parsed_expr])
-            case "all":
-                out = all([self._try_eval(eval, entry) for entry in self.parsed_expr])
-            case "product":
-                out = reduce(lambda a, b: a * b, self.parsed_expr, 1)
-            case other:
-                out = eval(f"{other}({self.parsed_expr})")
-        self._stdout(out)
-
-    def fold(self):
-        if self.args.reduce_default is None:
-            out = reduce(self.args.func, self.parsed_expr)
-        else:
-            out = reduce(self.args.func, self.parsed_expr, self.args.reduce_default)
-        self._stdout(out)
-
-    def _try_eval(
-        self,
-        fn: Callable,
-        entry: str | list | tuple | dict | set,
-        default: str | None = None,
-        distribute=False,
-        positional=True,
-    ) -> Any:
-        out = default
-        try:
-            if not distribute:
-                out = fn(entry)
-            elif positional:
-                out = fn(*entry)
-            else:
-                out = fn(**entry)
-        except:
-            pass
-        return out
-
-    def _try_exec_dist_vars(
-        self, fn: Callable, entry: str | int | float | bool | list | set | dict | tuple
-    ) -> str:
-        cmd = str(self._try_eval(fn, entry, ""))
-        if self.args.distribute_args:
-            if self.args.arg_container_type in [list, tuple]:
-                cmd = str(self._try_eval(fn, entry, "", True))
-            elif self.args.arg_container_type in [dict]:
-                cmd = str(self._try_eval(fn, entry, "", True, False))
-        return cmd
-
-    def _try_eval_dist_vars(
-        self, fn: Callable, entry: str | int | float | bool | list | set | dict | tuple
-    ) -> Any:
-        cmd = self._try_eval(fn, entry)
-        if self.args.distribute_args:
-            if self.args.arg_container_type in [list, tuple]:
-                cmd = self._try_eval(fn, entry, None, True)
-            elif self.args.arg_container_type in [dict]:
-                cmd = self._try_eval(fn, entry, None, True, False)
-        return cmd
-
-    def _parse_expr(self) -> set | list | dict | tuple:
-        if self.args.json_in:
-            input_json = json.loads(self.args.expr)
-            if type(input_json) == list:
-                return input_json
-            else:
-                return [item for item in input_json.items()]
-        if self.args.split_whitespace:
-            the_iterable = self.args.expr.split()
-        else:
-            the_iterable = self.args.expr.split(self.args.input_separator)
-        if not self.args.split_entry:
-            return self.args.container_type(
-                [self.args.lambda_type_lambda(entry) for entry in the_iterable]
-            )
-        else:
-            return self.args.container_type([self.args.lambda_type_lambda(*(entry.split(self.args.entry_separator))) for entry in the_iterable])
-
-    def _stdout(self, output: str | int | float | bool | set | list | dict | tuple):
-        out = ""
-        if self.args.json_out:
-            out_json = None
-            try:
-                out_json = dict(output)
-            except:
-                try:
-                    out_json = list(output)
-                except:
-                    out = "Output cannot be parsed as JSON."
-            if out_json is not None:
-                out = json.dumps(
-                    out_json,
-                    indent=self.args.json_out_indent,
-                    sort_keys=self.args.json_out_sort,
-                )
-        elif type(output) in [set, list, dict, tuple]:
-            out = self.args.output_separator.join([str(entry) for entry in output])
-        elif type(output) in [int, float, bool]:
-            out = str(output)
-        print(out)
-
-    def _adjust_args(self, args: Namespace) -> Namespace:
-        # Reduce possible fn command names to their primary name
-        for group in self._FN_GROUPS:
-            if args.fn in group:
-                args.fn = group[0]
-
-        # Extract information from function and parse into a lambda
-        raw_vars = (
-            args.function.split("->")[0]
-                .replace(" ", "")
-                .replace("|", "")
-                .replace("(", "")
-                .replace(")", "")
-                .strip()
-                .split(",")
-        )
-        if len(args.function.split("->")) == 1: # if fn is agg, try to convert to numeric if possible
-            if args.function in ["sum", "product", "stats"]:
-                args.type = "int" if (args.type == "int") else "float"
-        lambda_var_symbols = [s.split(":")[0].strip() for s in raw_vars]
-        lambda_var_types = list(map(lambda v: v[1].strip(), map(lambda u: u[0] if (u[1] > 1) else ["", ""], map(lambda t: (t.split(":"), len(t.split(":"))), raw_vars))))
-        lambda_var_types = [t if t in ["str", "int", "float", "bool", "list", "set", "tuple", "dict"] else args.type for t in lambda_var_types]
-        lambda_vars = ",".join(lambda_var_symbols)
-        lambda_func = "->".join(args.function.split("->")[1:]).strip()
-        args.lambda_symbols = lambda_var_symbols
-        lambda_inits_collection = ", ".join([f"{t[1]}({t[0]})" for t in zip(lambda_var_symbols, lambda_var_types)])
-        lambda_inits_dict = ", ".join([f"\"{t[0]}\": {t[1]}({t[0]})" for t in zip(lambda_var_symbols, lambda_var_types)])
-        if type(args.arg_container_type) == "dict":
-            args.lambda_type_lambda = eval(f"lambda {lambda_vars}: " + "{" + lambda_inits_dict + "}")
-        elif not args.split_entry:
-            args.lambda_type_lambda = eval(f"lambda {lambda_vars}: {lambda_inits_collection}")
-        else:
-            args.lambda_type_lambda = eval(f"lambda {lambda_vars}: ({lambda_inits_collection})")
-        if args.fn == "agg":
-            args.func = lambda v: v
-        elif args.fn == "eval":
-            args.func = lambda s: eval(s)
-        elif args.fn == "apply":
-            args.func = lambda entry: self._try_exec_dist_vars(
-                eval(f"lambda {lambda_vars}: {lambda_func}"), entry
-            )
-        else:
-            args.func = lambda entry: self._try_eval_dist_vars(
-                eval(f"lambda {lambda_vars}: {lambda_func}"), entry
-            )
-
-        # Additional control over args to allow some to overwrite others and do necessary conversion
-        args.expr = args.expr.strip()
-        if args.separator is not None:
-            args.input_separator = args.separator
-            args.output_separator = args.separator
-        args.container_type = eval(args.container_type)
-        args.type = eval(args.type)
-        if (args.json_out_indent is not None) and (args.json_out_indent.isdigit()):
-            args.json_out_indent = int(args.json_out_indent)
-        if args.json:
-            args.json_in = True
-            args.json_out = True
-        return args
-
-
-if __name__ == "__main__":
+def main():
     parser = ArgumentParser(
         prog=_CMD_NAME,
         description="Small CLI tool to help you manipulate shell data with Python commands.",
@@ -277,7 +29,7 @@ if __name__ == "__main__":
         "fn",
         type=str,
         default="eval",
-        help="Main command you want to apply to your input. Acceptable inputs are `map`, `apply`, and `filter`.",
+        help="Main command you want to apply to your input. Acceptable inputs are `map`, `apply`, `agg`, `sort`, `fold`, and `filter`.",
     )
     parser.add_argument(
         "expr",
@@ -297,7 +49,13 @@ if __name__ == "__main__":
         "--function",
         type=str,
         default="|v: str| -> v",
-        help="Lambda function to apply or evaluate.  Uses the following closure format: `|x: str, y: int| -> f(x, y)`.",
+        help="Lambda function to apply or evaluate.  Uses the following closure format: `|x: str, y: int| -> f(x, y)`. Defaults to the identity lambda.  For `fn` value of `agg`, use the name of the function which reduces a collection to a single value.",
+    )
+    parser.add_argument(
+        "-n",
+        "--no_split",
+        action="store_true",
+        help="Flag to not split input into multiple entries at all."
     )
     parser.add_argument(
         "-is",
@@ -328,28 +86,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "-se",
         "--split_entry",
-        action="store_true",
-        help="Flag to split each entry being iterated over into it's own container.",
-    )
-    parser.add_argument(
-        "-es",
-        "--entry_separator",
         type=str,
-        default=" ",
-        help="String to split data entries on.",
-    )
-    parser.add_argument(
-        "-da",
-        "--distribute_args",
-        action="store_true",
-        help="If present, treat collections generated by inner separation as arguments to function in `--function`.",
+        help="String to split data entries on if data entries are to be split.",
     )
     parser.add_argument(
         "-act",
         "--arg_container_type",
         type=type,
         default=tuple,
-        help="The container type to split entries by `--entry_separator` into.",
+        help="The container type to split entries by `--split_entry` into.",
     )
     parser.add_argument(
         "-ct",
@@ -375,7 +120,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "-rd",
         "--reduce_default",
-        type=Any,
         help="Default value to use when aggregating via reduce.",
     )
     parser.add_argument(
@@ -408,6 +152,7 @@ if __name__ == "__main__":
         type=str,
         help="Specify indentation for output JSON.",
     )
+    parser.add_argument("-i", "--init", type=str, nargs="*", help="Commands to run prior to start to prep the environment and create any needed resources.")
     args = parser.parse_args()
 
     if (args.fn in "version") or (args.version):
@@ -428,3 +173,6 @@ if __name__ == "__main__":
                         )
         # Execute command
         Fn(args).evaluate()
+
+if __name__ == "__main__":
+    main()

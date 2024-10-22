@@ -3,7 +3,7 @@ import sys
 import os
 from argparse import ArgumentParser
 from stat import S_ISFIFO
-from parser import Fn
+from fnk.parser import Fn
 import pkg_resources
 
 

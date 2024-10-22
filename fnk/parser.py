@@ -147,7 +147,6 @@ class Fn:
             the_iterable = list(self.args.expr)
         else:
             the_iterable = self.args.expr.split(self.args.input_separator)
-        print(the_iterable)
         if self.args.split_entry in [None, ""]:
             return self.args.container_type(
                 [self.args.lambda_type_lambda(entry) for entry in the_iterable]

@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fnk"
-version = "0.1.0"
+version = "0.2.0"
 authors = [
-    {name = "Shane Stephenson", email = "stephenson.shane.a@gmail.com"},
+  {name = "Shane Stephenson", email = "stephenson.shane.a@gmail.com"},
 ]
 description = "Run Python on the command line with a functional bent."
 readme = "README.md"

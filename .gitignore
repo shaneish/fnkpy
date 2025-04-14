@@ -7,3 +7,5 @@ build
 *.egg-info
 **/*.egg
 **/*.egg-info
+**/.ruff_cache
+.ruff_cache

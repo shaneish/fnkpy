@@ -1,10 +1,14 @@
 import sys
 from importlib import metadata
-from typing import Any, Sequence, Self, Iterable
+from typing import Any, Sequence, Iterable
 from argparse import ArgumentParser, Namespace, Action
 from importlib import import_module
 from enum import Enum
 from dataclasses import dataclass
+if sys.version_info > (3, 10):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 
 class Imports(Enum):
@@ -218,7 +222,7 @@ def evaluate(collection: Iterable, args: Namespace, return_evaluation: bool = Fa
             else: # pass through valid elements that weren't filtered
                 record = record.update(val=output)
         new_records = [record]
-        if args.collection and args.expand:
+        if args.collection and args.expand: # expand records back out if collected and expand is selected
             new_records = [Record(val=v, status=Status.VALID) for v in record.val]
         if not return_evaluation:
             for new_record in new_records:

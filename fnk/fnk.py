@@ -1,14 +1,12 @@
+from __future__ import annotations
 import sys
 from importlib import metadata
 from typing import Any, Sequence, Iterable
 from argparse import ArgumentParser, Namespace, Action
 from importlib import import_module
 from enum import Enum
+from copy import copy
 from dataclasses import dataclass
-if sys.version_info > (3, 10):
-    from typing import Self
-else:
-    from typing_extensions import Self
 
 
 class Imports(Enum):
@@ -28,28 +26,14 @@ class Collection(Enum):
     TUPLE = tuple
 
     @classmethod
-    def infer(cls, repr: str) -> Self | None:
+    def infer(cls, repr: str | None) -> Collection:
         if repr:
             match repr.lower():
-                case '[]' | 'list':
-                    return Collection.LIST
                 case '{}' | 'set':
                     return Collection.SET
                 case '()' | 'tuple':
                     return Collection.TUPLE
-                case _:
-                    return None
-
-
-@dataclass
-class Record:
-    val: Any
-    status: Status
-
-    def update(self, **kwargs) -> Self:
-        for k in self.__dataclass_fields__.keys():
-            self.__dict__[k] = kwargs.get(k) or self.__dict__[k]
-        return self
+        return Collection.LIST
 
 
 class OrderedArgsAction(Action):
@@ -57,7 +41,7 @@ class OrderedArgsAction(Action):
         self,
         parser: ArgumentParser,
         namespace: Namespace,
-        values: str | Sequence[str] | None,
+        values: str | Sequence[Any] | bool | None = None,
         option_string: str | None = None,
     ):
         if "ordered_args" not in namespace:
@@ -108,24 +92,56 @@ def parse_args() -> Namespace:
         help="Map to apply to input stream.",
     )
     parser.add_argument(
-        "-C",
-        "--collect",
+        "--print",
+        "-p",
+        action=OrderedArgsAction,
         type=str,
+        nargs="?",
+        help="Print records for previous action"
+    )
+    parser.add_argument(
+        "--collect",
+        "-c",
+        action=OrderedArgsAction,
+        type=str,
+        nargs='?',
         help="Collection type to collect all lines into prior to applying maps or evals"
     )
     parser.add_argument(
-        "--constants",
-        "-c",
+        "-e",
+        "--expand",
+        action=OrderedArgsAction,
         type=str,
-        nargs="*",
-        help="Additional constants to add to execution namespace.  Should be supplied in format `--variables var_name=var_val 'extra_string=Hello there' two=2`",
+        nargs="?",
+        help="Flag to expand collected elements back into individual records prior to sending back to stdout/stderr"
     )
     parser.add_argument(
-        "--variable-repr",
-        "-V",
+        "-po",
+        "--pop",
+        action=OrderedArgsAction,
+        type=str,
+        help="Place a copy of the current register into the variable namespace with specified name.  For example, using `--pop lengths` will make a copy of the current buffer with name `lengths`."
+    )
+    parser.add_argument(
+        "-x",
+        "--exec",
+        action=OrderedArgsAction,
+        type=str,
+        help="Execute an arbitrary string of Python code with access to the namespace and buffer."
+    )
+    parser.add_argument(
+        "--namespace-vars",
+        "-n",
+        type=str,
+        nargs="*",
+        help="Additional variables to add to execution namespace.  Should be supplied in format `--variables const_name=const_val 'extra_string=Hello there' two=2`",
+    )
+    parser.add_argument(
+        "--repr-string",
+        "-r",
         type=str,
         default="_",
-        help="Variable name to use across stages, default is '_'",
+        help="String to use to represent the variable in actions, default is '_'",
     )
     parser.add_argument(
         "--imports",
@@ -141,119 +157,130 @@ def parse_args() -> Namespace:
         help="Flag to display debug info"
     )
     parser.add_argument(
-        "-bf",
-        "--blank-line-filtered",
+        "-he",
+        "--hide-exceptions",
         action="store_true",
-        help="Flag to specify if a blank line should be showed for filtered rows"
-    )
-    parser.add_argument(
-        "-be",
-        "--blank-line-exceptions",
-        action="store_true",
-        help="Flag to specify if a blank line should be showed for exception rows"
-    )
-    parser.add_argument(
-        "-se",
-        "--show-exceptions",
-        action="store_true",
-        help="Flag to print exception messages into stderr"
+        help="Flag to hide exceptions from being directed to stdout"
     )
     parser.add_argument(
         "-sf",
         "--show-filtered",
         action="store_true",
-        help="Flag to print error into stderr"
+        help="Flag to print empty lines to stdout for filtered records"
     )
     parser.add_argument(
-        "-e",
-        "--expand",
-        action="store_true",
-        help="Flag to expand collected elements back into individual records prior to sending back to stdout/stderr"
+        "-s",
+        "--standardize-input",
+        type=str,
+        default="",
+        nargs="?",
+        help="Flag to pre-collect stdin into array with all input lines stripped of specified characters (default is to whitespace).  There is a slight performance cost to this due to the pre-collect phase."
     )
 
     parsed = parser.parse_args()
     namespace = {
         **parse_imports(parsed.imports, Imports.module),
-        **parse_imports(parsed.constants, Imports.variable),
+        **parse_imports(parsed.namespace_vars, Imports.variable),
     }
-    parsed.collection = Collection.infer(parsed.collect)
     parsed.namespace = namespace
+    if len(parsed.ordered_args) > 0 and parsed.ordered_args[-1] != ("print", None):
+        parsed.ordered_args = parsed.ordered_args + [("print", None)]
+    parsed.stages = []
+    for stage in parsed.ordered_args:
+        if stage[0] in ["map", "filter", "print"]:
+            if parsed.stages and isinstance(parsed.stages[-1], list):
+                parsed.stages[-1].append(stage)
+            else:
+                parsed.stages.append([stage])
+        elif (len(parsed.stages) == 0 and stage[0] != "expand") or len(parsed.stages) > 0:
+                parsed.stages.append(stage)
     return parsed
 
 
-# i know the below function can be made prettier by abstracting out a bunch of
-# the logic (ie, the actual evaluation part, splitting into two other functions
-# where one handles collections and the other handles evaluations, etc),
-# but due to the heavy performance hit incurred by function
-# calls python and my reluctance to duplicate the same code in two separate
-# functions in case it needs to be changed i've just thrown it together as you
-# see below.
-#
-# sue me
-def evaluate(collection: Iterable, args: Namespace, return_evaluation: bool = False) -> list[Record] | None:
-    if args.debug:
-        print("NAMESPACE:", args, "\n")
-    records = []
-    if args.collection:
-        collected = args.collection.value(element.strip() for element in collection)
-        collection = [collected]
-    for element in collection:
-        element = element if not isinstance(element, str) else element.strip()
-        record = Record(val=element, status=Status.VALID)
-        # the below for-loop evaluates the output value of each input element across all maps/filters at one time
-        for act, fn_str in args.ordered_args:
+def evaluate(record: Any, ops: list[tuple[str, str | None]], vars: dict[str, str] | None = None, var_repr: str = "_", show_filtered: bool = False, show_exceptions: bool = False, debug: bool = False) -> Any:
+    if vars is None:
+        vars = {}
+    act = None
+    for act, fn_str in ops:
+        if act != "print":
             try:
                 # fn = lambda _: eval(fn_str, {"_": _, **args.namespace})
                 # output = fn(record.val)
-                output = eval(fn_str, {args.variable_repr: record.val, **args.namespace})
-                if args.debug:
+                output = eval(fn_str or var_repr, {var_repr: record, **vars})
+                if debug:
                     print(f"VALID: {record = }, {output = }, {fn_str = }")
             except Exception as e: # skip excepted elements
-                record = record.update(val=e, status=Status.ERROR)
-                if args.debug:
-                    print(f"EXCEPTION: {record = }, {act = }, {fn_str = }\n")
-                break
+                if show_exceptions:
+                    print(f"Exception: {e}", file=sys.stderr)
+                return None
             if act == "filter": # skip filtered elements or pass through previous evaluated value
                 if not output:
-                    record = record.update(val=output, status=Status.FILTER)
-                    if args.debug:
-                        print(f"FILTERED: {record = }, {act = }, {fn_str = }\n")
-                    break
+                    if show_filtered:
+                        print(f"Filtered: {record}")
+                    return None
             else: # pass through valid elements that weren't filtered
-                record = record.update(val=output)
-        new_records = [record]
-        if args.collection and args.expand: # expand records back out if collected and expand is selected
-            new_records = [Record(val=v, status=Status.VALID) for v in record.val]
-        if not return_evaluation:
-            for new_record in new_records:
-                match new_record.status:
-                    case Status.ERROR:
-                        if args.show_exceptions:
-                            print(new_record.val, file=sys.stderr)
-                        if args.blank_line_exceptions:
-                            print("", file=sys.stdout)
-                    case Status.FILTER:
-                        if args.show_filtered:
-                            print(new_record.val, file=sys.stderr)
-                        if args.blank_line_filtered:
-                            print("", file=sys.stdout)
-                    case _:
-                        if args.debug:
-                            print(f"OUTPUT: {new_record.val}\n", file=sys.stdout)
-                        else:
-                            print(new_record.val, file=sys.stdout)
+                record = output
         else:
-            records = records + new_records
+            print(record, file=sys.stdout)
+    return record
+
+def evaluate_records(collection: Iterable, ops: list[tuple[str, str | None]], args: Namespace) -> list[Any]:
+    records = []
+    # if args.collection:
+    #     collected = args.collection.value(element.strip() for element in collection)
+    #     collection = [collected]
+    for record in collection:
+        if isinstance(record, str):
+            record = record.strip()
+        # the below for-loop evaluates the output value of each input element across all maps/filters at one time
+        record = evaluate(record, ops, args.namespace, args.repr_string, args.show_filtered, not args.hide_exceptions, args.debug)
+        if record is not None:
+            records.append(record)
     return records
 
+def expand(record: Any, fn_str: str | None = None, vars: dict[str, Any] | None = None, var_repr: str = "_") -> list[Any]:
+    if vars is None:
+        vars = {}
+    return [r for r in eval(fn_str or var_repr, {var_repr: record, **vars})]
+
+def evaluate_stages(collection: Iterable, args: Namespace):
+    for sub_stage in args.stages:
+        if isinstance(sub_stage, list):
+            collection = evaluate_records(collection, sub_stage, args)
+        elif sub_stage[0] == "collect":
+            # collection = collect(collection, Collection.infer(sub_stage[1]))
+            collection = [Collection.infer(sub_stage[1]).value(collection)]
+        elif sub_stage[0] == "expand":
+            expansion = []
+            for record in collection:
+                expansion = expansion + expand(record, sub_stage[1], args.namespace, args.repr_string)
+            collection = expansion
+        elif sub_stage[0] == "pop":
+            var_name = sub_stage[1].split("<-")[0].strip()
+            fn = sub_stage[1].split("<-")[1].strip()
+            args.namespace[var_name] = eval(fn, {args.repr_string: copy(collection), **args.namespace})
+        elif sub_stage[0] == "push":
+            collection = [args.namespace[sub_stage[1]]]
+        elif sub_stage[0] == "exec":
+            for record in collection:
+                exec(sub_stage[1], {args.repr_string: record, **args.namespace})
 
 def main():
     args = parse_args()
     if args.version:
         print(f"fnk {metadata.version('fnk')}")
     else:
-        evaluate(sys.stdin, args)
+        if args.debug:
+            print("ARGS:", args)
+        # evaluate_records(sys.stdin, args.ordered_args, args)
+        collection = sys.stdin
+        if args.standardize_input:
+            collection = [s.strip(args.standardize_input or " \n\r\t") for s in sys.stdin.read()]
+        evaluate_stages(collection, args)
 
 
 if __name__ == "__main__":
+    args = parse_args()
     main()
+
+
